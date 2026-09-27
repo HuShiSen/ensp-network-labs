@@ -1,0 +1,42 @@
+# =============================================================================
+# 07 VRRP 双核心网关：备用侧（LSW-CORE-B，Backup）
+# -----------------------------------------------------------------------------
+# 设备：S5700（LSW-CORE-B）
+# 与主用侧差异只有三处：
+#   物理地址 .2、优先级 100（不填即默认 100，这里写出来更清楚）、不做抢占
+# 验收：
+#   display vrrp brief     → State = Backup，Master IP 显示为 A 的物理地址
+#   display vrrp           → State: Backup，Master Priority: 120
+# 接管测试：
+#   让 A 侧 Vlanif 或上行 down（或整机停）→ 本机 State 变 Master，
+#   终端 ping 虚 IP 恢复；恢复 A 后本机自动回到 Backup（preempt delay 到期后）
+# =============================================================================
+
+sysname LSW-CORE-B
+
+interface Vlanif10
+ description OFFICE-gw
+ ip address 192.168.10.2 255.255.255.0
+ vrrp vrid 10 virtual-ip 192.168.10.254
+ vrrp vrid 10 priority 100
+
+interface Vlanif20
+ description VIDEO-gw
+ ip address 192.168.20.2 255.255.255.0
+ vrrp vrid 20 virtual-ip 192.168.20.254
+ vrrp vrid 20 priority 100
+
+interface Vlanif30
+ description COUNTER-gw
+ ip address 192.168.30.2 255.255.255.0
+ vrrp vrid 30 virtual-ip 192.168.30.254
+ vrrp vrid 30 priority 100
+
+# 回读：# display vrrp brief
+#       # display vrrp
+#
+# 接管演练（在主用侧执行，演练后恢复）：
+# interface Vlanif10
+#  shutdown            → 备机应立刻变 Master，终端连续 ping 只丢 1~2 个包
+# interface Vlanif10
+#  undo shutdown       → 回读确认主用重新变 Master（优先级 120 > 100）

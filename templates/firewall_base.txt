@@ -1,0 +1,51 @@
+# =============================================================================
+# 防火墙基础配置模板（USG6000V 通用）
+# 说明：安全设备默认拒绝所有域间流量，策略必须显式放通；改任何配置前先备份
+# =============================================================================
+
+sysname <DEVICE-NAME>
+
+clock timezone CST add 08:00:00
+clock datetime <YYYY-MM-DD> <HH:MM:SS>
+
+# ---- 接口与区域（区域名：trust / untrust / dmz / ha，按需增减）----
+interface GigabitEthernet1/0/0
+ description to-untrust
+ ip address <IP> <MASK>
+ arp-proxy enable                 # 需要做目的 NAT 发布时必开
+
+interface GigabitEthernet1/0/1
+ description to-trust
+ ip address <IP> <MASK>
+
+firewall zone untrust
+ add interface GigabitEthernet1/0/0
+firewall zone trust
+ add interface GigabitEthernet1/0/1
+
+# ---- 默认策略：默认拒绝，只放通业务需要的方向 ----
+security-policy
+ rule name trust-to-untrust
+  source-zone trust
+  destination-zone untrust
+  action permit
+
+# ---- 管理面安全 ----
+# user-interface vty 0 4
+#  authentication-mode aaa
+#  protocol inbound ssh
+#  acl 2000 inbound                 # 只允许管理网段登录
+# aaa
+#  local-user <USER> password irreversible-cipher <STRONG-PASSWORD>
+#  local-user <USER> privilege level 15
+#  local-user <USER> service-type ssh
+
+# ---- 日志 ----
+info-center loghost 192.168.99.100
+info-center timestamp loghost date
+
+# ---- 改配置前建议导出当前配置做备份 ----
+# display current-configuration
+# save
+# Y
+#

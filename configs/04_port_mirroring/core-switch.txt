@@ -1,0 +1,41 @@
+# =============================================================================
+# 04 端口镜像：把上/下行流量复制到观察口（接抓包 PC）
+# -----------------------------------------------------------------------------
+# 设备：S5700
+# 拓扑假设：
+#   GE0/0/24 → 抓包 PC（观察口，只收不发，不要跑业务）
+#   源口：GE0/0/10（到接入交换机的 Trunk 上联口）
+# 依赖：先把观察口接好并确认 PC 能收包（关掉 PC 防火墙对抓包工具的拦截）
+# 验收：
+#   display port-mirroring
+#     → Observe-port 1 = GigabitEthernet0/0/24
+#     → GE0/0/10 镜像方向为 both（或与需求一致的 inbound/outbound）
+#   display port-mirroring interface GigabitEthernet0/0/24
+# 抓包侧验证：
+#   在 PC 上抓包要能看到**双向**流量（源/目的 MAC 是别人的帧），
+#   若只看到自己的广播包 → 说明镜像没生效或方向配错（见 PITFALLS #12）
+# 常见坑：
+#   1) 观察口接了业务线 → 镜像流量与业务混在一起，判断困难
+#   2) 只配了 inbound 却想抓服务器应答 → 应改 both
+#   3) 观察口又开了 STP/被别的 VLAN 占用 → 收不到镜像帧
+# =============================================================================
+
+sysname LSW-CORE-A
+
+# ---- 定义观察口 ----
+observe-port 1 interface GigabitEthernet0/0/24
+
+# ---- 源口镜像（本实验抓上联口双向流量）----
+interface GigabitEthernet0/0/10
+ description to-LSW-ACC-1-GE0/0/1
+ port-mirroring to observe-port 1 both
+
+# ---- 可选：镜像某个 VLAN 的流量（按需替换上面的接口级镜像）----
+# vlan 10
+#  mirror to observe-port 1 inbound
+
+# 回读：# display port-mirroring
+#       # display port-mirroring interface GigabitEthernet0/0/24
+#
+# 观察口侧（LSW-ACC 或另接 PC）：
+#   GE0/0/24 只作观察口，不要配置 VLAN/业务；PC 上抓包验证双向可见

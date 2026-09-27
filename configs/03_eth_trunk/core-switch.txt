@@ -1,0 +1,53 @@
+# =============================================================================
+# 03 链路聚合：Eth-Trunk（LACP 静态模式）+ 断链验证
+# -----------------------------------------------------------------------------
+# 设备：S5700（LSW-CORE-A ↔ LSW-CORE-B，两根物理线聚合）
+# 拓扑假设：
+#   GE0/0/1 与 GE0/0/2  →  对端 LSW-CORE-B 的 GE0/0/1、GE0/0/2
+#   聚合口作为 Trunk 放通 VLAN 10/20/30/999（核心互联）
+# 下发顺序：01_vlan_trunk 之后，02_rstp 之前或之后均可
+# 验收：
+#   display eth-trunk 1
+#     → WorkingMode: LACP；两个成员口 Selected + Operate up
+#     → Number Of Up Port In Trunk: 2
+#   display lacp peer            → 对端系统优先级/端口状态正常
+#   display interface brief      → 成员口参与聚合（不再是独立转发口）
+# 断链测试（必做，也是最容易翻车的一步）：
+#   1) shutdown 其中一个成员口 → 业务 ping 应不中断，Up Port 变 1
+#   2) undo shutdown 恢复 → 回读确认 Up Port 回到 2
+#   3) save
+#   注意：恢复后必须回读验证（display eth-trunk 1 | include Operate），
+#         否则可能出现"脚本跑完了但口还停在 shutdown"的静默错误（见 PITFALLS #9）
+# =============================================================================
+
+sysname LSW-CORE-A
+
+# ---- 创建聚合口 ----
+interface Eth-Trunk1
+ description to-LSW-CORE-B
+ port link-type trunk
+ port trunk allow-pass vlan 10 20 30 999
+ # LACP 静态模式下，跨设备聚合需两台都配 mode lacp-static
+ mode lacp-static
+ load-balance src-dst-mac          # 按源/目的 MAC 分担（实验环境够用）
+ max active-linknumber 2
+
+# ---- 把物理口加入聚合组 ----
+interface GigabitEthernet0/0/1
+ description member-of-Eth-Trunk1
+ eth-trunk 1
+
+interface GigabitEthernet0/0/2
+ description member-of-Eth-Trunk1
+ eth-trunk 1
+
+# 回读：# display eth-trunk 1
+#       # display eth-trunk 1 verbose
+#       # display lacp peer
+#
+# 断链演示（演示完务必恢复 + save）：
+# interface GigabitEthernet0/0/1
+#  shutdown
+# <终端持续 ping → 观察不中断>
+# interface GigabitEthernet0/0/1
+#  undo shutdown

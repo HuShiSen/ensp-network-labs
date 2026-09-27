@@ -1,0 +1,94 @@
+# =============================================================================
+# 08 防火墙：安全区域 + 域间策略 + 源 NAT + 目的 NAT 服务器发布
+# -----------------------------------------------------------------------------
+# 设备：USG6000V（FW1）
+# 拓扑假设：
+#   GE1/0/1 → 内网（trust）192.168.100.0/24，网关 .1
+#   GE1/0/0 → 公网（untrust）202.1.1.1/24，对端 AR-EDGE 202.1.1.2
+#   GE1/0/2 → 发布区（dmz）192.168.50.0/24，服务器 192.168.50.10
+# 验收：
+#   display zone                          → 三个接口归属区域正确
+#   display security-policy rule all      → 允许/拒绝规则的命中计数符合预期
+#   display nat-policy rule all           → 规则 ACTION 为 dst-nat / source-nat（不是 "-"）
+#   display firewall session table        → 会话方向与转换后的源/目的地址正确
+# 三个高频坑（都踩过，务必核对）：
+#   1) 目的 NAT 规则里同时写 destination-zone 会与 action destination-nat 冲突，
+#      规则能建出来但**没有动作**（ACTION 显示 "-"、HITS 恒为 0），流量落进默认 no-nat
+#      → 撤掉 zone 条件，只留 destination-address + action
+#   2) 公网侧没人代答发布地址的 ARP → 接口下必须 arp-proxy enable
+#   3) 把发布地址配成接口 sub 地址会让 ping"通"，但 TTL=255、HITS=0 —— 那是接口自己
+#      在应答，属"假通"；真正的判据是 HITS 随流量递增 + 会话表里目的地址被转换
+# =============================================================================
+
+sysname FW1
+
+# ---- 接口地址 ----
+interface GigabitEthernet1/0/1
+ description to-internal-lan
+ ip address 192.168.100.1 255.255.255.0
+
+interface GigabitEthernet1/0/0
+ description to-AR-EDGE
+ ip address 202.1.1.1 255.255.255.0
+ arp-proxy enable                     # 让设备代答发布地址的 ARP（坑 2）
+
+interface GigabitEthernet1/0/2
+ description to-dmz-server
+ ip address 192.168.50.1 255.255.255.0
+
+# ---- 安全区域 ----
+firewall zone trust
+ add interface GigabitEthernet1/0/1
+firewall zone untrust
+ add interface GigabitEthernet1/0/0
+firewall zone dmz
+ add interface GigabitEthernet1/0/2
+
+# ---- 域间安全策略（默认拒绝，只放通需要的）----
+security-policy
+ rule name trust-to-untrust
+  source-zone trust
+  destination-zone untrust
+  action permit
+ rule name untrust-to-dmz-http
+  source-zone untrust
+  destination-zone dmz
+  destination-address 192.168.50.10 32
+  service http https
+  action permit
+ rule name dmz-to-trust-deny
+  source-zone dmz
+  destination-zone trust
+  action deny
+
+# ---- 源 NAT：内网访问公网（easy-ip，用接口地址做转换）----
+nat-policy
+ rule name snat-outbound
+  source-zone trust
+  destination-zone untrust
+  action source-nat easy-ip
+
+# ---- 目的 NAT：把公网地址发布到内网服务器 ----
+# 注意：这里**不要**写 destination-zone（坑 1）
+nat-policy
+ rule name dnat_server_publish
+  destination-address 202.1.1.10 32
+  action destination-nat static global 202.1.1.10 inside 192.168.50.10
+  description publish-web-server
+ rule name snat-dmz-move
+  source-zone dmz
+  destination-zone untrust
+  action source-nat easy-ip
+
+# ---- 默认路由 ----
+ip route-static 0.0.0.0 0.0.0.0 202.1.1.2
+
+# 回读与验证：
+#   display nat-policy rule all            （重点看 ACTION 与 HITS）
+#   display security-policy rule all
+#   display firewall session table
+# 公网侧实测（在 AR-EDGE 或 ISP 侧路由器上）：
+#   ping -c 5 202.1.1.10     （通，且回显 TTL 应为转发后的值，不是 255）
+# 会话验证（FW1 上）：
+#   display firewall session table verbose | include 192.168.50.10
+# 调完规则若 HITS 不涨：先查规则 ACTION 是否为空，再查是否有更靠前的规则先命中

@@ -1,0 +1,50 @@
+# =============================================================================
+# 交换机基础配置模板（S5700/S3700 通用，落地前按规划的 VLAN/网段替换）
+# 用途：每台交换机开局先跑这一段，避免"每台设备各写一套"
+# =============================================================================
+
+sysname <DEVICE-NAME>
+
+# ---- 时区与时间（日志时间戳准确，排错才有意义）----
+clock timezone CST add 08:00:00
+clock datetime <YYYY-MM-DD> <HH:MM:SS>
+
+# ---- 日志与告警 ----
+info-center loghost 192.168.99.100          # 可选：接日志服务器
+info-center timestamp loghost date
+info-center source default channel 2 log level warning
+
+# ---- 生成树：全网统一 RSTP ----
+stp mode rstp
+# stp instance 0 root primary               # 核心 A
+# stp instance 0 root secondary             # 核心 B
+
+# ---- 管理 VLAN 与地址 ----
+vlan batch 10 20 30 999
+interface Vlanif999
+ description mgmt
+ ip address 192.168.99.<N> 255.255.255.0
+
+# ---- 管理面安全（生产必做，实验可只留 user-interface 部分）----
+# stelnet server enable
+# ssh user <USER> authentication-type password
+# ssh user <USER> service-type stelnet
+# aaa
+#  local-user <USER> password irreversible-cipher <STRONG-PASSWORD>
+#  local-user <USER> privilege level 15
+#  local-user <USER> service-type ssh
+# user-interface vty 0 4
+#  authentication-mode aaa
+#  protocol inbound ssh
+#  idle-timeout 10 0
+#  acl 2000 inbound                          # 只允许管理网段登录
+
+# ---- 未使用端口默认关闭（减少误插与环路风险）----
+# interface range GigabitEthernet0/0/21 to GigabitEthernet0/0/24
+#  description reserved
+#  shutdown
+
+# ---- 保存（控制台里一次写入，避免被吞回车）----
+# save
+# Y
+#

@@ -1,0 +1,44 @@
+# =============================================================================
+# 路由器基础配置模板（AR2240 通用）
+# =============================================================================
+
+sysname <DEVICE-NAME>
+
+clock timezone CST add 08:00:00
+clock datetime <YYYY-MM-DD> <HH:MM:SS>
+
+# ---- 日志送往日志服务器（可选）----
+info-center loghost 192.168.99.100
+info-center timestamp loghost date
+
+# ---- Loopback 作为 router-id / 管理地址 ----
+interface LoopBack0
+ description router-id
+ ip address 10.255.0.<N> 255.255.255.255
+
+# ---- 互联接口命名规范：description = to-<对端>-<对端口> ----
+interface GigabitEthernet0/0/0
+ description to-<PEER>-<IFACE>
+ ip address <IP> <MASK>
+
+# ---- 缺省路由（按需，出口方向）----
+# ip route-static 0.0.0.0 0.0.0.0 <NEXT-HOP>
+
+# ---- 管理面安全（生产必做）----
+# aaa
+#  local-user <USER> password irreversible-cipher <STRONG-PASSWORD>
+#  local-user <USER> privilege level 15
+#  local-user <USER> service-type ssh
+# user-interface vty 0 4
+#  authentication-mode aaa
+#  protocol inbound ssh
+#  idle-timeout 10 0
+
+# ---- 可选：SNMP 只读监控（生产环境用只读团体字 + ACL）----
+# snmp-agent
+# snmp-agent sys-info version v2c
+# snmp-agent community read cipher <RO-COMMUNITY> acl 2000
+
+# save
+# Y
+#

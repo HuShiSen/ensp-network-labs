@@ -1,0 +1,59 @@
+# =============================================================================
+# 01 基础二层：VLAN 划分 + Access/Trunk + 管理 VLAN
+# -----------------------------------------------------------------------------
+# 设备：S5700（核心 LSW-CORE-A）
+# 拓扑假设：
+#   GE0/0/10 → 接入交换机 LSW-ACC-1（Trunk，放通 VLAN 10/20/30 + 管理 999）
+#   GE0/0/20 → 管理终端（Access，VLAN 999）
+#   GE0/0/21/22 → 预留未使用
+# 地址：管理 VLAN999 = 192.168.99.1/24（规划见 docs/CONVENTIONS.md）
+# 下发顺序：本文件 → 回读校验 → 再做 02_rstp
+# 验收：
+#   display port vlan           → Trunk 口 allow-pass 为 10/20/30/999，Access 口 PVID=999
+#   display vlan 10 20 30 999   → 三个业务 VLAN + 管理 VLAN 均存在，成员口正确
+#   ping 192.168.99.2           → 核心与接入管理地址互通
+# 常见坑：把 Trunk 口写成 Access，或漏放通管理 VLAN → 管理地址 ping 不通（见 PITFALLS #2）
+# =============================================================================
+
+sysname LSW-CORE-A
+
+# ---- VLAN ----
+vlan batch 10 20 30 999
+vlan 10
+ description OFFICE
+vlan 20
+ description VIDEO
+vlan 30
+ description COUNTER
+vlan 999
+ description MGMT
+
+# ---- 管理地址 ----
+interface Vlanif999
+ description mgmt
+ ip address 192.168.99.1 255.255.255.0
+
+# ---- 上联/下联：Trunk ----
+interface GigabitEthernet0/0/10
+ description to-LSW-ACC-1-GE0/0/1
+ port link-type trunk
+ port trunk allow-pass vlan 10 20 30 999
+
+# ---- 管理终端：Access ----
+interface GigabitEthernet0/0/20
+ description to-mgmt-terminal
+ port link-type access
+ port default vlan 999
+
+# ---- 预留端口关闭（防止误插线引入环路）----
+interface GigabitEthernet0/0/21
+ description reserved
+ shutdown
+interface GigabitEthernet0/0/22
+ description reserved
+ shutdown
+
+# ---- 回读命令（下发后逐条执行，确认真的生效）----
+# display port vlan
+# display vlan 10 20 30 999
+# display interface GigabitEthernet0/0/10

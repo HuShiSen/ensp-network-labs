@@ -1,0 +1,40 @@
+# =============================================================================
+# 05 OSPF 多区域：分支路由器（Area 10 内 + 默认路由指向核心）
+# -----------------------------------------------------------------------------
+# 设备：AR2240（AR-BRANCH）
+# 拓扑假设：
+#   GE0/0/0 → LSW-CORE-A 方向（Area 10）
+#   GE0/0/1 → 分支内网（192.168.40.0/24，可选）
+# 验收：
+#   display ospf peer brief      → 与核心 A 的邻居 Full
+#   display ip routing-table     → 有 OSPF 学到的 192.168.10/20/30、0.0.0.0/0 默认路由
+#   ping -a <分支内网地址> 192.168.10.1   → 指定源地址 ping，验证回程也正确
+# 说明：分支对外访问可用 default-route-advertise 让核心侧下发默认路由，
+#       也可在本机静态默认路由（本例给静态方式，更直观）
+# =============================================================================
+
+sysname AR-BRANCH
+
+interface LoopBack0
+ description router-id
+ ip address 10.255.0.11 255.255.255.255
+
+interface GigabitEthernet0/0/0
+ description to-LSW-CORE-A
+ ip address 10.10.0.2 255.255.255.252
+
+interface GigabitEthernet0/0/1
+ description to-branch-lan
+ ip address 192.168.40.1 255.255.255.0
+
+ospf 1 router-id 10.255.0.11
+ area 0.0.0.10
+  network 10.10.0.0 0.0.0.3
+  network 192.168.40.0 0.0.0.255
+
+# 默认路由指向核心（或改为 ospf 1 下 default-route-advertise always 由核心下发）
+ip route-static 0.0.0.0 0.0.0.0 10.10.0.1
+
+# 回读：# display ospf peer brief
+#       # display ip routing-table
+#       # ping -a 192.168.40.1 192.168.10.1

@@ -1,0 +1,50 @@
+# =============================================================================
+# 09 防火墙双机热备（HRP）：备用（FW2）
+# -----------------------------------------------------------------------------
+# 与 FW1 的差异只有三处：
+#   · 业务接口 IP 用 .2（如 202.1.1.2 / 192.168.100.2）— 与主用同网段不同地址
+#   · 心跳口 IP 为 10.10.30.2，remote 指向 10.10.30.1
+#   · 额外一条 hrp standby-device（明确本机为备机；USG6000V 无 hrp priority）
+# 其余接口、区域、安全策略、NAT 配置建议直接复用主用侧（或依赖 hrp auto-sync 同步后核对）
+# 验收：
+#   display hrp state   → Role: standby (HRP_S)，peer 为 active
+#   display hrp state   → HRP link: running（心跳正常）
+# 切换后（主用失效时）：
+#   display hrp state   → 本机 Role: active
+#   display firewall session table  → 原主用上的会话仍在（会话同步生效）
+# =============================================================================
+
+sysname FW2
+
+interface GigabitEthernet1/0/0
+ description to-untrust
+ ip address 202.1.1.2 255.255.255.0
+ arp-proxy enable
+
+interface GigabitEthernet1/0/1
+ description to-trust
+ ip address 192.168.100.2 255.255.255.0
+
+firewall zone untrust
+ add interface GigabitEthernet1/0/0
+firewall zone trust
+ add interface GigabitEthernet1/0/1
+
+interface GigabitEthernet1/0/6
+ description to-FW1-heartbeat
+ ip address 10.10.30.2 255.255.255.252
+
+firewall zone ha
+ add interface GigabitEthernet1/0/6
+
+hrp enable
+hrp interface GigabitEthernet1/0/6 remote 10.10.30.1
+hrp auto-sync
+hrp standby-device                   # 关键：USG6000V 用这条指定备机，没有 hrp priority
+hrp mirror session enable
+
+# 回读：# display hrp state
+#       # display hrp configuration
+#
+# 注意：两台设备的 sysname 不同是正常的（hrp auto-sync 会同步业务配置，
+#       不会把设备名改掉；若发现配置没同步，检查 hrp auto-sync 与心跳状态）

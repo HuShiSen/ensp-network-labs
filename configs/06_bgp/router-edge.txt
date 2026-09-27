@@ -1,0 +1,80 @@
+# =============================================================================
+# 06 BGP：出口路由器与运营商建立 eBGP，并重分发内网 OSPF 路由
+# -----------------------------------------------------------------------------
+# 设备：AR2240（AR-EDGE，本域 AS 100）
+# 拓扑假设：
+#   GE0/0/0 → eNSP 通用 Router（模拟运营商，AS 200，地址 202.1.1.1/30）
+#   GE0/0/1 → LSW-CORE-A（内网，跑 OSPF，见 05_ospf_multi_area）
+# 地址：Loopback0 = 10.255.0.254/32（router-id）；公网段 202.1.1.0/30
+# 验收：
+#   display bgp peer                      → State = Established，Up 时间稳定
+#   display bgp routing-table             → 本端宣告的汇总网段（192.168.0.0/16）存在
+#   display ip routing-table protocol bgp → 学到运营商侧网段
+#   display ospf lsdb（核心侧）           → 出现 AS-external LSA（重分发生效）
+# 注意：
+#   1) 只宣告**汇总网段**，不要 import-route 直连把所有细节都送出去
+#   2) 双向重分发必须用 route-policy/filter-policy 过滤，否则容易出现环路或
+#      把 BGP 学来的路由再重分发回 BGP（路由振荡）
+#   3) eBGP 邻居要通，先确认两端 IP 直连可达（ping 一下再配 BGP）
+# =============================================================================
+
+sysname AR-EDGE
+
+interface LoopBack0
+ description router-id
+ ip address 10.255.0.254 255.255.255.255
+
+interface GigabitEthernet0/0/0
+ description to-ISP-Router
+ ip address 202.1.1.2 255.255.255.252
+
+interface GigabitEthernet0/0/1
+ description to-LSW-CORE-A-GE0/0/23
+ ip address 10.10.0.1 255.255.255.252
+
+# ---- 内网 OSPF（与核心互联）----
+ospf 1 router-id 10.255.0.254
+ area 0.0.0.0
+  network 10.10.0.0 0.0.0.3
+
+# ---- 路由策略：只把汇总网段与必要的直连宣告出去 ----
+route-policy RP-EXPORT permit node 10
+ apply cost 10
+
+# ---- BGP：AS 100 ↔ 运营商 AS 200 ----
+bgp 100
+ router-id 10.255.0.254
+ peer 202.1.1.1 as-number 200
+ peer 202.1.1.1 description to-ISP-AS200
+ ipv4-family unicast
+  peer 202.1.1.1 enable
+  # 方式一：精确宣告汇总网段（要求路由表里有该网段，或配合静态黑洞路由）
+  network 192.168.0.0 255.255.0.0
+  # 方式二：把 OSPF 学到的内网路由重分发进 BGP（配合 route-policy 过滤）
+  import-route ospf 1 route-policy RP-EXPORT
+  undo synchronization                 # 现代实现默认关闭，写出来更明确
+
+# ---- 把 BGP 学到的默认路由回注内网（可选，视出口策略而定）----
+# ospf 1
+#  default-route-advertise always
+
+# =============================================================================
+# 对端（运营商模拟，eNSP 通用 Router，AS 200）
+# -----------------------------------------------------------------------------
+# sysname ISP-Router
+# interface GigabitEthernet0/0/0
+#  ip address 202.1.1.1 255.255.255.252
+# interface LoopBack0
+#  ip address 8.8.8.8 255.255.255.255
+# bgp 200
+#  router-id 8.8.8.8
+#  peer 202.1.1.2 as-number 100
+#  ipv4-family unicast
+#   peer 202.1.1.2 enable
+#   network 8.8.8.0 255.255.255.0        # 或直接宣告 Loopback 网段
+# 验收（本端）：ping -a 192.168.10.1 8.8.8.8  → 公网可达且源地址正确
+# =============================================================================
+
+# 回读：# display bgp peer
+#       # display bgp routing-table
+#       # display ip routing-table 8.8.8.8

@@ -1,0 +1,55 @@
+# =============================================================================
+# 07 VRRP 双核心网关：主用侧（LSW-CORE-A，Master）
+# -----------------------------------------------------------------------------
+# 设备：S5700（LSW-CORE-A）
+# 拓扑假设：双核心（A/B）对下提供 VLAN 10/20/30 的虚拟网关
+#   A：物理地址 .1，VRRP 优先级 120（Master）
+#   B：物理地址 .2，VRRP 优先级 100（Backup）
+#   虚 IP：每段 .254（VRID = VLAN ID，见 docs/CONVENTIONS.md）
+# 依赖：Vlanif 成员口必须 up（接入交换机上行/NIC 都要在），否则 VRRP 停在 Initialize
+# 验收：
+#   display vrrp brief     → VRID 10/20/30 全部 Master，虚拟 IP 正确
+#   display vrrp           → State: Master，优先级 120，抢占模式开启
+#   display vrrp statistics
+# 切换验证（配合 09 或直接断上行）：
+#   终端连续 ping -c 40 <虚IP>：切断主用后丢包 ≤ 5%，恢复后仍通；
+#   备机接管期间 ping 仍带业务地址回显（说明转发路径切走了）
+# 常见坑：
+#   Vlanif 下配了 VRRP 但 VLAN 成员口没 up → 显示 Master 也是假象（流量出不去）
+#   因此先看 display vlan 10 的成员口状态，再看 display vrrp brief
+# =============================================================================
+
+sysname LSW-CORE-A
+
+# ---- 三层网关 + VRRP（每个业务 VLAN 一套）----
+interface Vlanif10
+ description OFFICE-gw
+ ip address 192.168.10.1 255.255.255.0
+ vrrp vrid 10 virtual-ip 192.168.10.254
+ vrrp vrid 10 priority 120
+ vrrp vrid 10 preempt-mode timer delay 20
+ vrrp vrid 10 track interface GigabitEthernet0/0/10 reduced 30   # 上行断则降优先级，让备机接管
+
+interface Vlanif20
+ description VIDEO-gw
+ ip address 192.168.20.1 255.255.255.0
+ vrrp vrid 20 virtual-ip 192.168.20.254
+ vrrp vrid 20 priority 120
+ vrrp vrid 20 preempt-mode timer delay 20
+ vrrp vrid 20 track interface GigabitEthernet0/0/10 reduced 30
+
+interface Vlanif30
+ description COUNTER-gw
+ ip address 192.168.30.1 255.255.255.0
+ vrrp vrid 30 virtual-ip 192.168.30.254
+ vrrp vrid 30 priority 120
+ vrrp vrid 30 preempt-mode timer delay 20
+ vrrp vrid 30 track interface GigabitEthernet0/0/10 reduced 30
+
+# ---- 终端侧验证（在 PC 上）----
+# ping -t 192.168.10.254          （Windows 持续 ping，用于切换观察）
+# arp -a | findstr 192.168.10.254 （虚拟 MAC 应为主用路由器 MAC，切换后会变）
+
+# 回读：# display vrrp brief
+#       # display vrrp
+#       # display vlan 10        （确认成员口 up，排除假象）

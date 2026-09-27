@@ -1,0 +1,40 @@
+# =============================================================================
+# 02 生成树：RSTP + 根桥主备 + 边缘端口
+# -----------------------------------------------------------------------------
+# 设备：S5700（核心 LSW-CORE-A = 根桥；LSW-CORE-B = 备根）
+# 拓扑假设：双核心通过两根线互联（本仓库推荐用 Eth-Trunk 聚合，见 03）
+#           接入层双上行到两台核心
+# 下发顺序：01_vlan_trunk 之后
+# 验收：
+#   display stp                        → 模式为 RSTP/MSTP
+#   display stp brief                  → 本机为主根：端口角色以 DESIGNATED 为主；
+#                                        备根上应有 ALTE/ROOT 角色
+#   display stp root                   → 全网根桥 = LSW-CORE-A 的桥 MAC
+#   display stp brief | include EDGE   → 接终端的 Access 口为 EDGE 端口
+# 常见坑（重要）：
+#   两个交换机之间"只跑一个 VLAN"的点到点互联口，会被 STP 判为冗余并阻塞
+#   （端口状态出现 ALTE/Discarding）→ 使得该 VLAN 不通。处理见 docs/PITFALLS.md #2
+#   本实验的互联口跑多个 VLAN，因此不会被砍；若要单 VLAN 点对点，可 stp disable
+# =============================================================================
+
+sysname LSW-CORE-A
+
+# ---- 全网统一的生成树模式 ----
+stp mode rstp
+stp instance 0 root primary              # 本机为主根（LSW-CORE-B 用 root secondary）
+
+# ---- 终端接入口设为边缘端口（不参与生成树计算，插拔不触发拓扑震荡）----
+interface GigabitEthernet0/0/20
+ stp edged-port enable
+
+# ---- 接终端的 Access 口建议同时做端口保护（收到 BPDU 直接关闭）----
+# interface GigabitEthernet0/0/20
+#  stp bpdu-protection
+
+# 回读：# display stp brief
+#       # display stp root
+#       # display stp interface GigabitEthernet0/0/10   （看角色与开销）
+#
+# ---- 备根设备（LSW-CORE-B）对应配置 ----
+# stp mode rstp
+# stp instance 0 root secondary

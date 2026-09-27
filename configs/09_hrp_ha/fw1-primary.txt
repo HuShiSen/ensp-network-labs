@@ -1,0 +1,72 @@
+# =============================================================================
+# 09 防火墙双机热备（HRP）：主用（FW1）
+# -----------------------------------------------------------------------------
+# 设备：USG6000V × 2（FW1 主用 / FW2 备用）
+# 拓扑假设：
+#   两台 FW 的 GE1/0/0（untrust）与 GE1/0/1（trust）各自接到同一交换机的不同口
+#   心跳/同步口：GE1/0/6，互连专用网段 10.10.30.0/30
+#     FW1: 10.10.30.1，FW2: 10.10.30.2
+# 前置条件（很重要）：
+#   1) 两台设备的关键配置（接口、区域、策略、NAT）要一致，HRP 会自动同步配置与会话
+#   2) 心跳口**必须加入安全区域**，否则 HRP 状态一直异常（见 PITFALLS #3）
+#   3) USG6000V 上**没有 hrp priority 命令**；备机用 hrp standby-device 指定（见 #4）
+# 验收：
+#   display hrp state        → Role: active (HRP_M)；peer 为 standby；HRP link running
+#   display hrp configuration
+#   display firewall session table（切换前后对比，会话是否同步到备机）
+# 切换实测（必做）：
+#   终端连续 ping -c 40 业务地址 → 使主用失效（断上行 / 停主用设备）：
+#     · 丢包应在个位数以内
+#     · 回显 TTL 由 255 变 254（或反之）→ 证明流量真的走了另一台设备
+#     · 备机 display hrp state 应变为 active
+#   恢复主用后观察是否自动回切（HRP 默认会回切）
+# =============================================================================
+
+sysname FW1
+
+# ---- 业务接口与区域（与 FW2 保持一致）----
+interface GigabitEthernet1/0/0
+ description to-untrust
+ ip address 202.1.1.1 255.255.255.0
+ arp-proxy enable
+
+interface GigabitEthernet1/0/1
+ description to-trust
+ ip address 192.168.100.1 255.255.255.0
+
+firewall zone untrust
+ add interface GigabitEthernet1/0/0
+firewall zone trust
+ add interface GigabitEthernet1/0/1
+
+# ---- 心跳口：单独建一个 ha 区域并加入（坑 3）----
+interface GigabitEthernet1/0/6
+ description to-FW2-heartbeat
+ ip address 10.10.30.1 255.255.255.252
+
+firewall zone ha
+ add interface GigabitEthernet1/0/6
+
+# ---- HRP 基础配置 ----
+hrp enable
+hrp interface GigabitEthernet1/0/6 remote 10.10.30.2
+hrp auto-sync                        # 自动同步配置与状态
+
+# ---- 主备角色 ----
+# 主用：无需额外命令（先起来/配置完备的一侧即 active）
+# 备用（在 FW2 上执行）：hrp standby-device
+
+# ---- 需要随主备切换调整的路由/接口，可用 hrp track 跟踪 ----
+# hrp track interface GigabitEthernet1/0/0
+
+# ---- 会话同步（保证切换时已建立的连接不断）----
+hrp mirror session enable
+
+# 回读：# display hrp state
+#       # display hrp configuration
+#       # display hrp interface
+# 切换演练：
+#   1) 在终端持续 ping 业务地址
+#   2) 断 FW1 上行（或 shutdown 接口 / 停设备）
+#   3) 观察丢包与 TTL 变化；`display hrp state` 在 FW2 上应为 active
+#   4) 恢复 FW1，回读两台状态与 saved-configuration（务必 save）

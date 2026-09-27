@@ -1,0 +1,46 @@
+# =============================================================================
+# 01 基础二层：接入交换机侧（VLAN + Trunk + 边缘端口）
+# -----------------------------------------------------------------------------
+# 设备：S5700（接入 LSW-ACC-1）
+# 拓扑假设：
+#   GE0/0/1 → 核心 LSW-CORE-A（Trunk 上行）
+#   GE0/0/2~4 → 终端 PC（Access，分别 VLAN 10 / 20 / 30）
+# 地址：无三层地址（二层接入），管理地址另配于 Vlanif999
+# 验收：
+#   display port vlan        → GE0/0/1 Trunk 放通 10/20/30/999；GE0/0/2 PVID=10
+#   display vlan 10          → 成员口包含 GE0/0/2
+#   PC 侧 ping 自身网关       → 经核心 VRRP 虚 IP 可达（配合 07_vrrp）
+# 常见坑：接入层 Trunk 漏放通某个 VLAN → 该 VLAN 终端"有地址但不通"
+# =============================================================================
+
+sysname LSW-ACC-1
+
+vlan batch 10 20 30 999
+
+interface Vlanif999
+ description mgmt
+ ip address 192.168.99.2 255.255.255.0
+
+# ---- 上行 Trunk ----
+interface GigabitEthernet0/0/1
+ description to-LSW-CORE-A-GE0/0/10
+ port link-type trunk
+ port trunk allow-pass vlan 10 20 30 999
+
+# ---- 终端接入（Access）----
+interface GigabitEthernet0/0/2
+ description to-PC-VLAN10
+ port link-type access
+ port default vlan 10
+
+interface GigabitEthernet0/0/3
+ description to-PC-VLAN20
+ port link-type access
+ port default vlan 20
+
+interface GigabitEthernet0/0/4
+ description to-PC-VLAN30
+ port link-type access
+ port default vlan 30
+
+# 回读：# display port vlan / display vlan 10 20 30 999

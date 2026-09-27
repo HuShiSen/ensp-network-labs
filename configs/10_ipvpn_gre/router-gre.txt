@@ -1,0 +1,68 @@
+# =============================================================================
+# 10 IP-VPN 专线模拟：GRE 隧道（两端私网互通）
+# -----------------------------------------------------------------------------
+# 设备：AR2240（本端 AR-EDGE）；对端 AR-BRANCH-2（另一台 AR2240）
+# 拓扑假设：
+#   本端公网口 GE0/0/0 = 202.1.1.2/24（对端可达 202.1.1.6）
+#   隧道内层网段：172.16.0.0/30（本端 .1，对端 .2）
+#   隧道承载的私网：本端 192.168.100.0/24 ←→ 对端 172.16.10.0/24
+# 验收：
+#   display interface Tunnel0/0/0    → Line protocol current state: UP；
+#                                      Tunnel protocol/transport: GRE/IP
+#   display ip routing-table         → 对端私网经 Tunnel0/0/0 可达
+#   ping -a <本端私网地址> <对端私网地址>  → 通（指定源地址，验证回程）
+# 常见坑：
+#   1) 隧道里再套隧道/跑 OSPF 时 MTU 不够 → 大包被丢（ping 通但业务慢）
+#      处理：interface Tunnel 下 tcp adjust-mss 或调小 MTU
+#   2) 只在两端配了隧道地址却没写路由 → 隧道 UP 但私网不通
+#   3) 源地址用错接口（多出口时） → 对端收不到 GRE 回包
+# =============================================================================
+
+sysname AR-EDGE
+
+# ---- 公网接口（隧道源）----
+interface GigabitEthernet0/0/0
+ description to-internet
+ ip address 202.1.1.2 255.255.255.0
+
+# ---- GRE 隧道 ----
+interface Tunnel0/0/0
+ description GRE-to-branch
+ tunnel-protocol gre
+ source 202.1.1.2
+ destination 202.1.1.6
+ ip address 172.16.0.1 255.255.255.252
+ tcp adjust-mss 1400                 # 规避隧道内大包被丢（坑 1）
+
+# ---- 本端私网接口 ----
+interface GigabitEthernet0/0/1
+ description to-local-lan
+ ip address 192.168.100.1 255.255.255.0
+
+# ---- 去往对端私网走隧道 ----
+ip route-static 172.16.10.0 255.255.255.0 Tunnel0/0/0
+
+# ---- 可选：隧道内跑 OSPF（替代静态路由，便于扩展多站点）----
+# ospf 1 router-id 10.255.0.254
+#  area 0.0.0.0
+#   network 172.16.0.0 0.0.0.3
+
+# =============================================================================
+# 对端配置（AR-BRANCH-2，镜像配置）
+# -----------------------------------------------------------------------------
+# interface GigabitEthernet0/0/0
+#  ip address 202.1.1.6 255.255.255.0
+# interface Tunnel0/0/0
+#  tunnel-protocol gre
+#  source 202.1.1.6
+#  destination 202.1.1.2
+#  ip address 172.16.0.2 255.255.255.252
+#  tcp adjust-mss 1400
+# interface GigabitEthernet0/0/1
+#  ip address 172.16.10.1 255.255.255.0
+# ip route-static 192.168.100.0 255.255.255.0 Tunnel0/0/0
+# =============================================================================
+
+# 回读：# display interface Tunnel0/0/0
+#       # display ip routing-table
+#       # ping -a 192.168.100.1 172.16.10.1
