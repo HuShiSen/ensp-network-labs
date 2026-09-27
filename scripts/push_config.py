@@ -91,7 +91,7 @@ def login_if_needed(sock: socket.socket, user: str | None, password: str | None,
 def main() -> int:
     ap = argparse.ArgumentParser(description="向 eNSP 设备控制台批量下发配置")
     ap.add_argument("--host", default="127.0.0.1", help="eNSP 运行主机（默认本机）")
-    ap.add_argument("--port", type=int, required=True, help="设备控制台监听端口（eNSP 里可查）")
+    ap.add_argument("--port", type=int, help="设备控制台监听端口（eNSP 里可查；--dry-run 时可省略）")
     ap.add_argument("--file", required=True, help="配置文件路径")
     ap.add_argument("--delay", type=float, default=0.35, help="每条命令后的等待秒数（默认 0.35）")
     ap.add_argument("--user"), ap.add_argument("--password")
@@ -110,6 +110,9 @@ def main() -> int:
     if args.dry_run:
         print("（dry-run：未连接设备）")
         return 0
+    if not args.port:
+        print("！下发必须指定 --port（设备控制台监听端口）", file=sys.stderr)
+        return 2
 
     print(f"\n== 连接 {args.host}:{args.port} ==")
     with socket.create_connection((args.host, args.port), timeout=10) as sock:
